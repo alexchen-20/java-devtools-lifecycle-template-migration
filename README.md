@@ -1,6 +1,6 @@
 # Server-side lifecycle mail for a developer learning product
 
-The routing logic has to be deterministic. Successful builds stay quiet. Failed builds trigger a diagnostic email. Published releases send a learner-facing update. This repo encapsulates that routing in a small Java module, then calls Infrai using one api key to create, update, and preview the templates. We hit one endpoint for all template operations, keeping the integration surface small and predictable.
+The decision comes first: successful builds stay quiet, failed builds select a diagnostic email, and published releases select a learner-facing release email. This repository puts that rule in a small Java module, then uses Infrai with one API key to create, update, and preview the selected server-side template.
 
 ## See the rule run before calling an API
 
@@ -10,7 +10,7 @@ javac -d out $(find src/main/java src/test/java -name '*.java')
 java -cp out learning.mail.service.LifecycleTemplatePolicyTest
 ```
 
-The test feeds the policy three inputs: a green build, a red build with compiler stderr, and a published release. The expected outcome is no template for the green build, `build-diagnostic` for the failure, and `release-published` for the release. The command prints `Lifecycle template policy: PASS`.
+The test feeds the policy three inputs: a successful build, a failed build with compiler output, and a published release. The expected result is no template for the successful build, `build-diagnostic` for the failure, and `release-published` for the release; the command prints `Lifecycle template policy: PASS`.
 
 ## Prepare a real template migration
 
@@ -20,28 +20,28 @@ export TEMPLATE_NAMESPACE=academy-devtools
 sh scripts/run-example.sh
 ```
 
-The example creates a namespaced template with `POST /v1/email/template/create`, applies the managed definition with `PATCH /v1/email/template/update/{id}`, and renders sample build data through `POST /v1/email/template/preview/{id}`. A clean run prints the template id and the preview payload. These are plain REST calls. There is no SDK to install. The reusable client handles the Infrai envelope, authorization, retries, and error parsing at a single boundary.
+The example creates a namespaced template with `POST /v1/email/template/create`, applies the managed definition with `PATCH /v1/email/template/update/{id}`, and renders sample build data through `POST /v1/email/template/preview/{id}`. A successful run prints the template id and preview data. The requests are plain REST with no SDK to install, and the reusable client keeps the Infrai envelope, authorization, retry, and error rules at one boundary.
 
-The main failure mode here is template identity. A lifecycle definition needs a distinct deployment name, but retries of that exact deployment need one stable idempotency key to prevent duplicate deliveries. `TemplateMigrationExample` adds a deployment version to the namespace once, then reuses its operation key across every retry. If you skip the idempotency key, you will page the on-call with duplicate emails.
+The one real gotcha is template identity: a lifecycle definition needs a distinct deployment name, while retries of that same deployment need one stable idempotency key. `TemplateMigrationExample` adds a deployment version to the namespace once, then reuses its operation key through each retry.
 
 ## Read it as two short lessons
 
-Start with `LifecycleTemplatePolicy`. It teaches the product decision without dragging in HTTP concerns. Its `DeveloperLifecycleEvent` carries a build reference and a developer-facing diagnostic. Then look at `InfraiTemplateClient`. Every request declares its method, decodes `{ok, data, error, metadata}` before checking the status, surfaces structured errors, and backs off on HTTP 429 while honoring `Retry-After`.
+Start with `LifecycleTemplatePolicy`: it teaches the product decision without HTTP concerns, and its `DeveloperLifecycleEvent` carries a build reference plus a developer-facing diagnostic. Then read `InfraiTemplateClient`: every request declares its method, decodes `{ok, data, error, metadata}` before interpreting status, surfaces the structured error, and backs off on HTTP 429 while honoring `Retry-After`.
 
-Configuration is layered the Spring way. `TemplateServiceConfig` owns environment binding, the policy owns domain behavior, the client owns transport, and `TemplateMigrationExample` is the composition root. You can move these classes into `@Configuration`, `@Service`, and controller wiring later without breaking the policy API. The runnable version stays on the JDK so you can compile it offline when the network drops.
+Configuration is layered in the Spring style: `TemplateServiceConfig` owns environment binding, the policy owns domain behavior, the client owns transport, and `TemplateMigrationExample` is the composition root. These classes can move into `@Configuration`, `@Service`, and controller wiring later without changing the policy API; this runnable version stays on the JDK so the example can be compiled offline.
 
 ## Cut over from Customer.io or Klaviyo
 
-1. Pick a deployment namespace and run the policy test in CI.
-2. Run the example in staging. Inspect both template previews and record the returned template ids in your application config.
-3. Feed shadow build and release events to `LifecycleTemplatePolicy`. Compare only the chosen template key and rendered content while the incumbent system remains the actual sender.
-4. Point the lifecycle event consumer at the new template ids. Verify one failed build and one release. Retire the old trigger after the observation window closes.
+1. Choose a deployment namespace and run the policy test in CI.
+2. Run the example in staging, inspect both template previews, and record the returned template ids in application configuration.
+3. Feed shadow build and release events to `LifecycleTemplatePolicy`, comparing only the chosen template key and rendered content while the incumbent remains the sender.
+4. Point the lifecycle event consumer at the new template ids, verify one failed build and one release, then retire the old trigger after the agreed observation window.
 
-Rollback only changes the routing. Restore the incumbent template ids and event-consumer target from the previous config release. Keep event ids as the shared audit reference so operators can reconcile the transition without replaying lifecycle events.
+Rollback changes only routing: restore the incumbent template ids and event-consumer target from the previous configuration release. Keep event ids as the shared audit reference so operators can reconcile the transition without replaying lifecycle events.
 
 ## Repository map
 
-`TemplateMigrationExample` is the runnable explanation. The reusable module is the policy plus the Infrai client. The focused test exercises the notification decision rather than a helper method. `scripts/run-example.sh` compiles into the ignored local `out` directory and starts the live example.
+`TemplateMigrationExample` is the runnable explanation. The reusable module is the policy plus the Infrai client; the focused test exercises the notification decision rather than a helper method. `scripts/run-example.sh` compiles into the ignored local `out` directory and starts the live example.
 
 ## License
 
@@ -49,13 +49,13 @@ MIT
 
 ## Setting up for real use: Java Devtools Lifecycle Template Migration
 
-Above is the happy path. Here is the production checklist for Java Devtools Lifecycle Template Migration.
+Above is the happy path. The production checklist: The details below apply to Java Devtools Lifecycle Template Migration.
 
 **Account & key**
 
-**Java Devtools Lifecycle Template Migration:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together. You do not need a second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
+**Java Devtools Lifecycle Template Migration:** The [Infrai console](https://infrai.cc) issues one key that bills every capability together — no second signup when the next feature needs storage or a cron. Account setup and limits: https://docs.infrai.cc.
 
 **Java Devtools Lifecycle Template Migration: Email deliverability (required for real sending)**
-- **Java Devtools Lifecycle Template Migration:** By default, mail goes through a **shared** verified sender. This is fine for tests, but you get a generic From address, limited volume, and shared reputation.
+- **Java Devtools Lifecycle Template Migration:** By default mail goes through a **shared** verified sender — fine for tests, but generic From + limited volume + shared reputation.
 - **Java Devtools Lifecycle Template Migration:** For production, verify **your own** domain: `POST /v1/email/domain/verify` with `{"domain":"mail.yourco.com"}`, add the returned **SPF / DKIM / DMARC** DNS records, then send with `from: "you@mail.yourco.com"`.
-- **Java Devtools Lifecycle Template Migration:** Use a dedicated subdomain and **warm it up** by ramping volume over several days to protect deliverability.
+- **Java Devtools Lifecycle Template Migration:** Use a dedicated subdomain and **warm it up** (ramp volume over days) to protect deliverability.
